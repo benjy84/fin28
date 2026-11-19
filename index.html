@@ -3,31 +3,255 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Game</title>
+<title>Hostile Ground</title>
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    min-height: 100vh;
-    display: grid;
-    place-items: center;
-    padding: 24px;
-    background: #10140f;
-    color: #e8efe4;
-    font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
-    text-align: center;
+  :root {
+    --hud: #8dff6a;
+    --hud-dim: #3f7a31;
+    --warn: #ff6a3d;
+    --crit: #ff2f2f;
+    --ink: #0a0d09;
   }
-  h1 { font-size: clamp(1.6rem, 6vw, 2.6rem); margin: 0 0 .4em; letter-spacing: -0.02em; }
-  p { margin: 0 auto; max-width: 32ch; color: #a8b6a0; }
-  .tick { font-size: 2.5rem; display: block; margin-bottom: .3em; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; overflow: hidden; background: #000; }
+  body.playing { cursor: none; }
+  body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--hud);
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #view { position: fixed; inset: 0; }
+  #view canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+  }
+
+  /* ---------- overlays ---------- */
+  .overlay {
+    position: fixed; inset: 0;
+    display: grid; place-items: center;
+    text-align: center;
+    padding: 32px;
+    background: radial-gradient(ellipse at center, rgba(8,12,8,.82), rgba(2,3,2,.96));
+    z-index: 40;
+  }
+  .overlay[hidden] { display: none; }
+  .panel { max-width: 620px; }
+  .title {
+    font-size: clamp(2.2rem, 7vw, 4.2rem);
+    letter-spacing: .12em;
+    line-height: .95;
+    text-shadow: 0 0 24px rgba(141,255,106,.35);
+  }
+  .title small {
+    display: block;
+    font-size: .26em;
+    letter-spacing: .4em;
+    color: var(--hud-dim);
+    margin-top: 1.2em;
+  }
+  .keys {
+    margin: 2em auto 0;
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: .5em 1.4em;
+    font-size: .9rem;
+    width: max-content;
+    text-align: left;
+    color: #cfe8c4;
+  }
+  .keys b { color: var(--hud); font-weight: 600; }
+  .prompt {
+    margin-top: 2.4em;
+    font-size: 1rem;
+    letter-spacing: .25em;
+    color: #fff;
+    animation: blink 1.4s steps(1,end) infinite;
+  }
+  @keyframes blink { 50% { opacity: .25; } }
+  .dead .title { color: var(--crit); text-shadow: 0 0 30px rgba(255,47,47,.45); }
+  .stat-line { margin-top: 1.6em; font-size: 1.05rem; color: #cfe8c4; letter-spacing: .1em; }
+
+  /* ---------- hud ---------- */
+  #hud { position: fixed; inset: 0; z-index: 20; pointer-events: none; }
+  #hud[hidden] { display: none; }
+
+  #crosshair {
+    position: absolute; left: 50%; top: 50%;
+    width: 26px; height: 26px;
+    translate: -50% -50%;
+    opacity: .9;
+  }
+  #crosshair i {
+    position: absolute; background: var(--hud); display: block;
+    box-shadow: 0 0 6px rgba(141,255,106,.8);
+  }
+  #crosshair i:nth-child(1) { left: 50%; top: 0;   width: 2px; height: 8px; translate: -50% 0; }
+  #crosshair i:nth-child(2) { left: 50%; bottom: 0; width: 2px; height: 8px; translate: -50% 0; }
+  #crosshair i:nth-child(3) { top: 50%; left: 0;   height: 2px; width: 8px; translate: 0 -50%; }
+  #crosshair i:nth-child(4) { top: 50%; right: 0;  height: 2px; width: 8px; translate: 0 -50%; }
+  #crosshair.locked i { background: var(--warn); box-shadow: 0 0 6px rgba(255,106,61,.9); }
+
+  .block {
+    position: absolute; bottom: 22px;
+    background: rgba(8,14,8,.55);
+    border: 1px solid rgba(141,255,106,.28);
+    padding: 10px 14px;
+  }
+  .label {
+    font-size: .62rem; letter-spacing: .28em;
+    color: var(--hud-dim); margin-bottom: 4px;
+  }
+  .big { font-size: 2.6rem; line-height: 1; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #health-block { left: 22px; min-width: 190px; }
+  #health-bar, #gat-bar {
+    height: 7px; margin-top: 8px;
+    background: rgba(141,255,106,.14);
+    overflow: hidden;
+  }
+  #health-fill { height: 100%; width: 100%; background: var(--hud); transition: width .12s linear; }
+  #health-block.hurt #health-fill { background: var(--warn); }
+  #health-block.crit #health-fill { background: var(--crit); }
+  #health-block.crit .big { color: var(--crit); animation: blink .7s steps(1,end) infinite; }
+
+  #weapons-block { right: 22px; min-width: 230px; text-align: right; }
+  #gat-fill { height: 100%; width: 100%; background: var(--hud); float: right; }
+  #weapons-block.reloading #gat-fill { background: var(--warn); }
+  #gat-state { font-size: .68rem; letter-spacing: .16em; margin-top: 7px; color: var(--hud-dim); min-height: 1em; }
+  #weapons-block.reloading #gat-state { color: var(--warn); }
+
+  #pips { display: flex; gap: 4px; justify-content: flex-end; margin-top: 2px; }
+  #pips span {
+    width: 11px; height: 20px;
+    background: var(--hud);
+    box-shadow: 0 0 7px rgba(141,255,106,.6);
+    clip-path: polygon(50% 0, 100% 26%, 100% 100%, 0 100%, 0 26%);
+  }
+  #pips span.spent { background: rgba(141,255,106,.16); box-shadow: none; }
+  #missile-state { font-size: .68rem; letter-spacing: .16em; margin-top: 7px; color: var(--hud-dim); min-height: 1em; }
+  #weapons-block.rack-reloading #missile-state { color: var(--warn); }
+
+  #top-right { position: absolute; top: 20px; right: 22px; text-align: right; }
+  #top-right div { font-size: .72rem; letter-spacing: .2em; color: var(--hud-dim); margin-bottom: 4px; }
+  #top-right b { color: var(--hud); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+  #wave-banner {
+    position: absolute; left: 50%; top: 24%;
+    translate: -50% 0;
+    text-align: center;
+    opacity: 0;
+    transition: opacity .4s;
+  }
+  #wave-banner.show { opacity: 1; }
+  #wave-banner .n { font-size: 3rem; letter-spacing: .14em; text-shadow: 0 0 26px rgba(141,255,106,.4); }
+  #wave-banner .s { font-size: .74rem; letter-spacing: .36em; color: var(--hud-dim); margin-top: 6px; }
+
+  #damage {
+    position: absolute; inset: 0;
+    box-shadow: inset 0 0 160px 40px rgba(255,30,20,.85);
+    opacity: 0;
+    transition: opacity .32s;
+  }
+  #toast {
+    position: absolute; left: 50%; bottom: 30%;
+    translate: -50% 0;
+    font-size: .8rem; letter-spacing: .2em;
+    color: #fff; text-shadow: 0 0 12px rgba(0,0,0,.9);
+    opacity: 0; transition: opacity .3s;
+  }
+  #toast.show { opacity: 1; }
+
+  /* scanlines + vignette for the retro crunch */
+  /* No mix-blend-mode here: blending a full-screen layer over a canvas that
+     redraws every frame makes the compositor re-do the whole screen each time,
+     which was costing more than the game itself. Plain alpha is free. */
+  #grade {
+    position: fixed; inset: 0; z-index: 30; pointer-events: none;
+    background:
+      repeating-linear-gradient(to bottom, rgba(0,0,0,.13) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 52%, rgba(0,0,0,.58) 100%);
+  }
+
+  @media (max-width: 700px) {
+    .big { font-size: 1.9rem; }
+    #health-block { min-width: 150px; }
+    #weapons-block { min-width: 180px; }
+  }
 </style>
 </head>
 <body>
-  <main>
-    <span class="tick">&#127795;</span>
-    <h1>Set up and deploying</h1>
-    <p>The repo and hosting are connected. The game goes here next.</p>
-  </main>
+
+<div id="view"></div>
+<div id="grade"></div>
+
+<div id="hud" hidden>
+  <div id="crosshair"><i></i><i></i><i></i><i></i></div>
+
+  <div id="health-block" class="block">
+    <div class="label">HULL</div>
+    <div class="big" id="health-num">1000</div>
+    <div id="health-bar"><div id="health-fill"></div></div>
+  </div>
+
+  <div id="weapons-block" class="block">
+    <div class="label">GATLING</div>
+    <div id="gat-bar"><div id="gat-fill"></div></div>
+    <div id="gat-state"></div>
+    <div class="label" style="margin-top:12px">MISSILE RACK</div>
+    <div id="pips"></div>
+    <div id="missile-state"></div>
+  </div>
+
+  <div id="top-right">
+    <div>WAVE <b id="wave-num">1</b></div>
+    <div>HOSTILES <b id="alive-num">0</b></div>
+    <div>KILLS <b id="kill-num">0</b></div>
+    <div>ALLIES <b id="ally-num">0</b></div>
+    <div>FPS <b id="fps-num">--</b></div>
+  </div>
+
+  <div id="wave-banner"><div class="n"></div><div class="s"></div></div>
+  <div id="damage"></div>
+  <div id="toast"></div>
+</div>
+
+<div class="overlay" id="start-screen">
+  <div class="panel">
+    <h1 class="title">HOSTILE GROUND<small>MARK VII ASSAULT FRAME</small></h1>
+    <div class="keys">
+      <b>W A S D</b><span>Walk</span>
+      <b>Mouse</b><span>Look</span>
+      <b>Left click</b><span>Gatling gun &mdash; 7s of fire, 7s reload</span>
+      <b>Right click</b><span>Missile &mdash; 8 in the rack, 30s reload</span>
+      <b>Space</b><span>Thruster hop</span>
+      <b>R</b><span>Reload gatling</span>
+      <b>Esc</b><span>Release mouse</span>
+    </div>
+    <p class="prompt">CLICK TO DEPLOY</p>
+  </div>
+</div>
+
+<div class="overlay dead" id="dead-screen" hidden>
+  <div class="panel">
+    <h1 class="title">FRAME DESTROYED</h1>
+    <p class="stat-line" id="dead-stats"></p>
+    <p class="prompt">CLICK TO REDEPLOY</p>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+<script type="module" src="./src/main.js"></script>
+
 </body>
 </html>
